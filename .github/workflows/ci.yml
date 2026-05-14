@@ -26,13 +26,17 @@ jobs:
 
   verify:
     # Exercise the actual plugin (download, checksum, extract, --version) on
-    # every supported OS. Skip mise's own `mise install` to avoid pulling in
-    # the lint-only Lua tooling here.
+    # every supported OS. install: false skips mise-action's `mise install`,
+    # and MISE_AUTO_INSTALL=false stops subsequent `mise run` invocations
+    # from auto-installing the dev tooling on Windows (where lua@5.4.8
+    # builds from source and fails).
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14, windows-2022]
     runs-on: ${{ matrix.os }}
+    env:
+      MISE_AUTO_INSTALL: "false"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
@@ -46,10 +50,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   verify-linux-compat:
-    # Same install path as `verify` (Linux/x86_64), but opting into the
-    # older-glibc build via MISE_APTOS_LINUX_COMPAT=1.
-    runs-on: ubuntu-24.04
+    # The "compat" Linux build links against libssl 1.1, which Ubuntu 24.04
+    # no longer ships. ubuntu-22.04 (jammy) still has libssl 1.1, so the
+    # binary is actually executable there — which is the only meaningful
+    # way to verify the compat artifact end-to-end.
+    runs-on: ubuntu-22.04
     env:
+      MISE_AUTO_INSTALL: "false"
       MISE_APTOS_LINUX_COMPAT: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
