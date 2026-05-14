@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Install and run multiple aptos versions"
+set -euo pipefail
+
+VERSIONS="${APTOS_TEST_VERSIONS:-9.0.0 9.1.0 9.2.0}"
+
+mise plugin link --force aptos .
+mise cache clear
+
+for v in $VERSIONS; do
+    echo "=== installing aptos@${v} ==="
+    mise install "aptos@${v}"
+    output=$(mise exec "aptos@${v}" -- aptos --version)
+    echo "aptos@${v} output: $output"
+    if ! echo "$output" | grep -q "aptos ${v}"; then
+        echo "✗ aptos@${v}: expected 'aptos ${v}', got: $output"
+        exit 1
+    fi
+done
+
+echo "✓ All versions installed and verified"

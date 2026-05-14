@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="Verify available.lua lists upstream releases"
+set -euo pipefail
+
+EXPECTED="${APTOS_TEST_VERSION:-9.2.0}"
+
+mise plugin link --force aptos .
+mise cache clear
+
+versions=$(mise ls-remote aptos)
+echo "Found $(echo "$versions" | wc -l | tr -d ' ') versions"
+
+if ! echo "$versions" | grep -qx "$EXPECTED"; then
+    echo "✗ Expected version '$EXPECTED' not in ls-remote output"
+    echo "--- output ---"
+    echo "$versions"
+    exit 1
+fi
+
+echo "✓ Listing test passed (found $EXPECTED)"

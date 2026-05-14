@@ -1,78 +1,70 @@
---- Returns download information for a specific version
+--- Returns download information for a specific Aptos CLI version
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#preinstall-hook
 --- @param ctx {version: string, runtimeVersion: string} Context
 --- @return table Version and download information
-function PLUGIN:PreInstall(ctx)
+function PLUGIN:PreInstall(ctx) -- luacheck: ignore 212
+    local http = require("http")
+
     local version = ctx.version
-    -- ctx.runtimeVersion contains the full version string if needed
+    local triple = resolve_target_triple()
+    local archive = "aptos-cli-" .. version .. "-" .. triple .. ".zip"
+    local base_url = "https://github.com/aptos-labs/aptos-cli-releases/releases/download/aptos-cli-v" .. version
+    local url = base_url .. "/" .. archive
 
-    -- Example 1: Simple binary download
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-linux-amd64"
-
-    -- Example 2: Platform-specific binary
-    -- local platform = get_platform() -- Uncomment the helper function below
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-" .. platform
-
-    -- Example 3: Archive (tar.gz, zip) - mise will extract automatically
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-" .. version .. "-linux-amd64.tar.gz"
-
-    -- Example 4: Raw file from repository
-    -- local url = "https://raw.githubusercontent.com/<GITHUB_USER>/<GITHUB_REPO>/" .. version .. "/bin/<TOOL>"
-
-    -- Replace with your actual download URL pattern
-    local url = "https://example.com/<TOOL>/releases/download/" .. version .. "/<TOOL>"
-
-    -- Optional: Fetch checksum for verification
-    -- local sha256 = fetch_checksum(version) -- Implement if checksums are available
+    local sha256 = fetch_sha256(http, base_url, archive)
 
     return {
         version = version,
         url = url,
-        -- sha256 = sha256, -- Optional but recommended for security
-        note = "Downloading <TOOL> " .. version,
-        -- addition = { -- Optional: download additional components
-        --     {
-        --         name = "component",
-        --         url = "https://example.com/component.tar.gz"
-        --     }
-        -- }
+        sha256 = sha256,
+        note = "Downloading Aptos CLI " .. version .. " (" .. triple .. ")",
     }
 end
 
--- Helper function for platform detection (uncomment and modify as needed)
---[[
-local function get_platform()
-    -- RUNTIME object is provided by mise/vfox
-    -- RUNTIME.osType: "Windows", "Linux", "Darwin"
-    -- RUNTIME.archType: "amd64", "386", "arm64", etc.
+--- Map RUNTIME.osType / RUNTIME.archType to the Rust target triple used in
+--- aptos-cli-releases asset filenames.
+--- Linux: defaults to glibc 2.31+ (-unknown-linux-gnu). Set
+--- MISE_APTOS_LINUX_COMPAT=1 for the older-glibc (-compat) build.
+function resolve_target_triple() -- luacheck: ignore 121
+    local os_name = tostring(RUNTIME.osType):lower()
+    local arch = tostring(RUNTIME.archType):lower()
 
-    local os_name = RUNTIME.osType:lower()
-    local arch = RUNTIME.archType
-
-    -- Map to your tool's platform naming convention
-    -- Adjust these mappings based on how your tool names its releases
-    local platform_map = {
-        ["darwin"] = {
-            ["amd64"] = "darwin-amd64",
-            ["arm64"] = "darwin-arm64",
-        },
-        ["linux"] = {
-            ["amd64"] = "linux-amd64",
-            ["arm64"] = "linux-arm64",
-            ["386"] = "linux-386",
-        },
-        ["windows"] = {
-            ["amd64"] = "windows-amd64",
-            ["386"] = "windows-386",
-        }
-    }
-
-    local os_map = platform_map[os_name]
-    if os_map then
-        return os_map[arch] or "linux-amd64"  -- fallback
+    if os_name == "darwin" then
+        if arch == "arm64" then
+            return "aarch64-apple-darwin"
+        elseif arch == "amd64" or arch == "x86_64" then
+            return "x86_64-apple-darwin"
+        end
+    elseif os_name == "linux" then
+        local compat = os.getenv("MISE_APTOS_LINUX_COMPAT")
+        local suffix = (compat == "1" or compat == "true") and "-compat" or ""
+        if arch == "amd64" or arch == "x86_64" then
+            return "x86_64-unknown-linux-gnu" .. suffix
+        elseif arch == "arm64" or arch == "aarch64" then
+            return "aarch64-unknown-linux-gnu" .. suffix
+        end
+    elseif os_name == "windows" then
+        if arch == "amd64" or arch == "x86_64" then
+            return "x86_64-pc-windows-msvc"
+        end
     end
 
-    -- Default fallback
-    return "linux-amd64"
+    error("Aptos CLI: unsupported platform " .. os_name .. "/" .. arch)
 end
---]]
+
+--- Fetch the SHA256SUMS file for the release and return the hash for `archive`.
+--- Returns nil (not an error) if the file or line is missing, so installation
+--- can still proceed for older releases that lack the manifest.
+function fetch_sha256(http, base_url, archive) -- luacheck: ignore 121
+    local resp, err = http.get({ url = base_url .. "/SHA256SUMS" })
+    if err ~= nil or resp.status_code ~= 200 then
+        return nil
+    end
+    for line in resp.body:gmatch("[^\r\n]+") do
+        local hash, file = line:match("^(%x+)%s+(.+)$")
+        if hash and file == archive then
+            return hash
+        end
+    end
+    return nil
+end

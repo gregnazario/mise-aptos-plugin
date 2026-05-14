@@ -1,69 +1,36 @@
 --- Performs additional setup after installation
 --- Documentation: https://mise.jdx.dev/tool-plugin-development.html#postinstall-hook
+--- mise auto-extracts the .zip from pre_install, leaving an `aptos` binary
+--- (or `aptos.exe` on Windows) at the install root. We move it into bin/.
 --- @param ctx {rootPath: string, runtimeVersion: string, sdkInfo: table} Context
 function PLUGIN:PostInstall(ctx)
     local sdkInfo = ctx.sdkInfo[PLUGIN.name]
     local path = sdkInfo.path
-    -- local version = sdkInfo.version
 
-    -- Example 1: Single binary file (most common)
-    -- The file is downloaded directly, move it to bin/ and make executable
+    local is_windows = tostring(RUNTIME.osType):lower() == "windows"
+    local binary = is_windows and "aptos.exe" or "aptos"
+
     os.execute("mkdir -p " .. path .. "/bin")
 
-    local srcFile = path .. "/" .. PLUGIN.name
-    local destFile = path .. "/bin/" .. PLUGIN.name
+    local src = path .. "/" .. binary
+    local dest = path .. "/bin/" .. binary
 
-    -- Move and make executable
-    local result = os.execute("mv " .. srcFile .. " " .. destFile .. " && chmod +x " .. destFile)
-    if result ~= 0 then
-        error("Failed to install " .. PLUGIN.name .. " binary")
-    end
-
-    -- Verify installation works
-    local testResult = os.execute(destFile .. " --version > /dev/null 2>&1")
-    if testResult ~= 0 then
-        error(PLUGIN.name .. " installation appears to be broken")
-    end
-
-    -- Example 2: Archive already extracted by mise
-    -- If pre_install returns a .tar.gz or .zip, mise extracts it automatically
-    -- You might just need to move files around:
-    --[[
-    os.execute("mkdir -p " .. path .. "/bin")
-    os.execute("mv " .. path .. "/<TOOL>-*/bin/* " .. path .. "/bin/")
-    os.execute("chmod +x " .. path .. "/bin/*")
-    --]]
-
-    -- Example 3: Multiple binaries
-    --[[
-    os.execute("mkdir -p " .. path .. "/bin")
-    local binaries = {"tool1", "tool2", "tool3"}
-    for _, binary in ipairs(binaries) do
-        os.execute("mv " .. path .. "/" .. binary .. " " .. path .. "/bin/")
-        os.execute("chmod +x " .. path .. "/bin/" .. binary)
-    end
-    --]]
-
-    -- Example 4: No action needed
-    -- If the archive already has the correct structure (bin/ directory),
-    -- you might not need to do anything:
-    --[[
-    -- Archive already contains bin/<TOOL>, just verify it works
-    local testResult = os.execute(path .. "/bin/<TOOL> --version > /dev/null 2>&1")
-    if testResult ~= 0 then
-        error("<TOOL> installation appears to be broken")
-    end
-    --]]
-
-    -- Example 5: Platform-specific setup
-    --[[
-    -- RUNTIME object is provided by mise/vfox
-    if RUNTIME.osType ~= "Windows" then
-        -- Unix-like systems: make binaries executable
-        os.execute("chmod +x " .. path .. "/bin/*")
+    local mv_cmd
+    if is_windows then
+        mv_cmd = 'move /Y "' .. src .. '" "' .. dest .. '"'
     else
-        -- Windows-specific setup if needed
-        -- e.g., adding .exe extension or handling batch files
+        mv_cmd = "mv " .. src .. " " .. dest .. " && chmod +x " .. dest
     end
-    --]]
+
+    local result = os.execute(mv_cmd)
+    if result ~= 0 and result ~= true then
+        error("Failed to install aptos binary from " .. src)
+    end
+
+    local version_cmd = is_windows and ('"' .. dest .. '" --version >NUL 2>&1')
+        or (dest .. " --version > /dev/null 2>&1")
+    local test_result = os.execute(version_cmd)
+    if test_result ~= 0 and test_result ~= true then
+        error("aptos installation appears to be broken (`aptos --version` failed)")
+    end
 end

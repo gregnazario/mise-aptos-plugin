@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-#MISE description="Run plugin tests - install and execute tool"
+#MISE description="Run plugin tests - install and execute aptos"
 set -euo pipefail
 
-mise plugin link --force <TOOL> .
+VERSION="${APTOS_TEST_VERSION:-9.2.0}"
+
+mise plugin link --force aptos .
 mise cache clear
-mise install <TOOL>@1.0.0
+mise install "aptos@${VERSION}"
 
-# Capture and display the output while also verifying it
-output=$(mise exec "<TOOL>@1.0.0" -- "<TOOL>" --version)
-echo "<TOOL> output: $output"
+output=$(mise exec "aptos@${VERSION}" -- aptos --version)
+echo "aptos output: $output"
 
-if echo "$output" | grep -q '<TOOL>@1.0.0'; then
+if echo "$output" | grep -q "aptos ${VERSION}"; then
     echo "✓ Tests passed"
 else
-    echo "✗ Test failed: expected version <TOOL>@1.0.0"
+    echo "✗ Test failed: expected 'aptos ${VERSION}' in output"
     exit 1
 fi
