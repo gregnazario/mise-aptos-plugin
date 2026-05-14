@@ -6,6 +6,13 @@ function PLUGIN:PreInstall(ctx) -- luacheck: ignore 212
     local http = require("http")
 
     local version = ctx.version
+    -- Strict allowlist: only X.Y.Z semver. The version flows into both the
+    -- download URL and the on-disk install path, so reject anything that
+    -- could carry shell metacharacters or URL-path tricks before use.
+    if not version:match("^%d+%.%d+%.%d+$") then
+        error("Aptos CLI: refusing to install invalid version string: " .. tostring(version))
+    end
+
     local triple = resolve_target_triple()
     local archive = "aptos-cli-" .. version .. "-" .. triple .. ".zip"
     local base_url = "https://github.com/aptos-labs/aptos-cli-releases/releases/download/aptos-cli-v" .. version
@@ -53,12 +60,22 @@ function resolve_target_triple() -- luacheck: ignore 121
 end
 
 --- Fetch the SHA256SUMS file for the release and return the hash for `archive`.
---- Returns nil (not an error) if the file or line is missing, so installation
---- can still proceed for older releases that lack the manifest.
+--- Hard-fail on any failure mode so an install can't silently proceed without
+--- checksum verification:
+---   * HTTP error fetching SHA256SUMS
+---   * Non-200 response
+---   * SHA256SUMS present but missing a line for this archive
 function fetch_sha256(http, base_url, archive) -- luacheck: ignore 121
     local resp, err = http.get({ url = base_url .. "/SHA256SUMS" })
-    if err ~= nil or resp.status_code ~= 200 then
-        return nil
+    if err ~= nil then
+        error("Aptos CLI: failed to fetch SHA256SUMS (" .. tostring(err) .. "). Refusing to install without checksum.")
+    end
+    if resp.status_code ~= 200 then
+        error(
+            "Aptos CLI: SHA256SUMS returned HTTP "
+                .. tostring(resp.status_code)
+                .. ". Refusing to install without checksum."
+        )
     end
     for line in resp.body:gmatch("[^\r\n]+") do
         local hash, file = line:match("^(%x+)%s+(.+)$")
@@ -66,5 +83,5 @@ function fetch_sha256(http, base_url, archive) -- luacheck: ignore 121
             return hash
         end
     end
-    return nil
+    error("Aptos CLI: archive '" .. archive .. "' not listed in SHA256SUMS. Refusing to install without checksum.")
 end

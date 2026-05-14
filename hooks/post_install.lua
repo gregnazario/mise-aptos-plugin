@@ -22,6 +22,13 @@ function PLUGIN:PostInstall(ctx)
         return joined
     end
 
+    -- POSIX single-quote quoting: wrap in '...' and escape internal ' as '\''.
+    -- Defense-in-depth so a path containing shell metacharacters can never
+    -- be reinterpreted by the shell.
+    local function sh_quote(s)
+        return "'" .. s:gsub("'", "'\\''") .. "'"
+    end
+
     local bin_dir = join(path, "bin")
     local src = join(path, binary)
     local dest = join(bin_dir, binary)
@@ -33,7 +40,7 @@ function PLUGIN:PostInstall(ctx)
     if is_windows then
         os.execute('if not exist "' .. bin_dir .. '" mkdir "' .. bin_dir .. '"')
     else
-        os.execute("mkdir -p " .. bin_dir)
+        os.execute("mkdir -p " .. sh_quote(bin_dir))
     end
 
     local moved, mv_err = os.rename(src, dest)
@@ -42,7 +49,7 @@ function PLUGIN:PostInstall(ctx)
     end
 
     if not is_windows then
-        os.execute("chmod +x " .. dest)
+        os.execute("chmod +x " .. sh_quote(dest))
     end
 
     -- Smoke-test the installed binary. Capture stdout+stderr so a failure
@@ -50,7 +57,7 @@ function PLUGIN:PostInstall(ctx)
     -- of just "broken". pipe:close() in mise's embedded Lua doesn't expose
     -- the child exit code, so detect success by matching the expected
     -- `aptos <semver>` prefix in the captured output.
-    local probe_cmd = is_windows and ('"' .. dest .. '" --version 2>&1') or (dest .. " --version 2>&1")
+    local probe_cmd = is_windows and ('"' .. dest .. '" --version 2>&1') or (sh_quote(dest) .. " --version 2>&1")
     local pipe = io.popen(probe_cmd)
     if not pipe then
         error("aptos installation: could not spawn " .. dest .. " --version")
