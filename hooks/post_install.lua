@@ -9,20 +9,33 @@ function PLUGIN:PostInstall(ctx)
 
     local is_windows = tostring(RUNTIME.osType):lower() == "windows"
     local binary = is_windows and "aptos.exe" or "aptos"
+    local sep = is_windows and "\\" or "/"
 
-    -- Create bin/ in an OS-appropriate way. Unix supports `mkdir -p`; cmd.exe
-    -- has no `-p` and errors if the directory exists, so suppress that.
-    local bin_dir = path .. "/bin"
+    -- Normalize joined paths to the native separator. sdkInfo.path on Windows
+    -- already uses backslashes; mixing in forward slashes from string joins
+    -- confuses os.rename on this Lua build.
+    local function join(a, b)
+        local joined = a .. sep .. b
+        if is_windows then
+            return (joined:gsub("/", "\\"))
+        end
+        return joined
+    end
+
+    local bin_dir = join(path, "bin")
+    local src = join(path, binary)
+    local dest = join(bin_dir, binary)
+
+    -- Create bin/. cmd.exe is already the shell for os.execute on Windows,
+    -- so use cmd built-ins directly (no `cmd /c` prefix). mkdir on Unix
+    -- needs -p; on Windows we guard with `if not exist` so re-runs don't
+    -- error out.
     if is_windows then
-        local win_bin = bin_dir:gsub("/", "\\")
-        os.execute('cmd /c if not exist "' .. win_bin .. '" mkdir "' .. win_bin .. '"')
+        os.execute('if not exist "' .. bin_dir .. '" mkdir "' .. bin_dir .. '"')
     else
         os.execute("mkdir -p " .. bin_dir)
     end
 
-    -- os.rename is portable across Unix and Windows; avoids the cmd vs sh split.
-    local src = path .. "/" .. binary
-    local dest = bin_dir .. "/" .. binary
     local moved, mv_err = os.rename(src, dest)
     if not moved then
         error("Failed to move " .. src .. " to " .. dest .. ": " .. tostring(mv_err))
