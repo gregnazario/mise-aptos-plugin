@@ -29,23 +29,17 @@ function PLUGIN:PostInstall(ctx)
 
     -- Smoke-test the installed binary. Capture stdout+stderr so a failure
     -- surfaces *why* (missing libc symbol, ELF interp mismatch, ...) instead
-    -- of just "broken". pipe:close() returns (true, "exit", N) on Lua 5.4 —
-    -- including non-zero N — so explicitly check the exit code, not `ok`.
+    -- of just "broken". pipe:close() in mise's embedded Lua doesn't expose
+    -- the child exit code, so detect success by matching the expected
+    -- `aptos <semver>` prefix in the captured output.
     local probe_cmd = is_windows and ('"' .. dest .. '" --version 2>&1') or (dest .. " --version 2>&1")
     local pipe = io.popen(probe_cmd)
     if not pipe then
         error("aptos installation: could not spawn " .. dest .. " --version")
     end
     local probe_output = pipe:read("*a") or ""
-    local _, reason, code = pipe:close()
-    if reason ~= "exit" or code ~= 0 then
-        error(
-            "aptos installation broken (`aptos --version` "
-                .. tostring(reason)
-                .. " "
-                .. tostring(code)
-                .. "): "
-                .. probe_output
-        )
+    pipe:close()
+    if not probe_output:match("^aptos %d+%.%d+%.%d+") then
+        error("aptos installation broken (`aptos --version` did not print a version): " .. probe_output)
     end
 end
