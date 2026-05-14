@@ -10,21 +10,26 @@ function PLUGIN:PostInstall(ctx)
     local is_windows = tostring(RUNTIME.osType):lower() == "windows"
     local binary = is_windows and "aptos.exe" or "aptos"
 
-    os.execute("mkdir -p " .. path .. "/bin")
-
-    local src = path .. "/" .. binary
-    local dest = path .. "/bin/" .. binary
-
-    local mv_cmd
+    -- Create bin/ in an OS-appropriate way. Unix supports `mkdir -p`; cmd.exe
+    -- has no `-p` and errors if the directory exists, so suppress that.
+    local bin_dir = path .. "/bin"
     if is_windows then
-        mv_cmd = 'move /Y "' .. src .. '" "' .. dest .. '"'
+        local win_bin = bin_dir:gsub("/", "\\")
+        os.execute('cmd /c if not exist "' .. win_bin .. '" mkdir "' .. win_bin .. '"')
     else
-        mv_cmd = "mv " .. src .. " " .. dest .. " && chmod +x " .. dest
+        os.execute("mkdir -p " .. bin_dir)
     end
 
-    local result = os.execute(mv_cmd)
-    if result ~= 0 and result ~= true then
-        error("Failed to install aptos binary from " .. src)
+    -- os.rename is portable across Unix and Windows; avoids the cmd vs sh split.
+    local src = path .. "/" .. binary
+    local dest = bin_dir .. "/" .. binary
+    local moved, mv_err = os.rename(src, dest)
+    if not moved then
+        error("Failed to move " .. src .. " to " .. dest .. ": " .. tostring(mv_err))
+    end
+
+    if not is_windows then
+        os.execute("chmod +x " .. dest)
     end
 
     -- Smoke-test the installed binary. Capture stdout+stderr so a failure
