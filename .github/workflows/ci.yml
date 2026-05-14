@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly run catches upstream asset-naming or release-format drift
+    # Weekly run catches upstream asset-naming or release-format drift.
     - cron: '0 12 * * 1'
   workflow_dispatch:
 
@@ -14,7 +14,20 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  lint:
+    # Lint tooling (lua, stylua, lua-language-server, hk, ...) only installs
+    # cleanly on Linux/macOS; the lua tool builds from source and that fails
+    # on the Windows runner. Linting the same source on one OS is enough.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+      - run: mise run lint
+
+  verify:
+    # Exercise the actual plugin (download, checksum, extract, --version) on
+    # every supported OS. Skip mise's own `mise install` to avoid pulling in
+    # the lint-only Lua tooling here.
     strategy:
       fail-fast: false
       matrix:
@@ -23,17 +36,26 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-      - run: mise run ci
+        with:
+          install: false
+      - run: mise run test-available
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: mise run test-versions
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  ci-linux-compat:
+  verify-linux-compat:
+    # Same install path as `verify` (Linux/x86_64), but opting into the
+    # older-glibc build via MISE_APTOS_LINUX_COMPAT=1.
     runs-on: ubuntu-24.04
     env:
       MISE_APTOS_LINUX_COMPAT: "1"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: false
       - run: mise run test-versions
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
